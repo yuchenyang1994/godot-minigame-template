@@ -26,29 +26,28 @@
 
 2. 因为godot官方已经把这个驱动废弃了，但是代码没废弃，所以头文件有问题，你需要再platform/web/audio_driver.h中把这个finish_driver删除
 
-```c
-class AudioDriverScriptProcessor : public AudioDriverWeb {
-private:
-	static void _process_callback();
+   ```c
+   class AudioDriverScriptProcessor : public AudioDriverWeb {
+   private:
+    static void _process_callback();
 
-	static AudioDriverScriptProcessor *singleton;
+    static AudioDriverScriptProcessor *singleton;
 
-protected:
-	virtual Error create(int &p_buffer_size, int p_output_channels) override;
-	virtual void start(float *p_out_buf, int p_out_buf_size, float *p_in_buf, int p_in_buf_size) override;
-	virtual void finish_driver() override; // 这里要删除
+   protected:
+     virtual Error create(int &p_buffer_size, int p_output_channels) override;
+     virtual void start(float *p_out_buf, int p_out_buf_size, float *p_in_buf, int p_in_buf_size) override;
+     virtual void finish_driver() override; // 这里要删除
 
-public:
-	virtual const char *get_name() const override { return "ScriptProcessor"; }
+   public:
+    virtual const char *get_name() const override { return "ScriptProcessor"; }
 
-	virtual void lock() override {}
-	virtual void unlock() override {}
+    virtual void lock() override {}
+    virtual void unlock() override {}
 
-	static AudioDriverScriptProcessor *get_singleton() { return singleton; }
-
-	AudioDriverScriptProcessor() { singleton = this; }
-};
-```
+    static AudioDriverScriptProcessor *get_singleton() { return singleton; }
+    AudioDriverScriptProcessor() { singleton = this; }
+   };
+   ```
 
 按照官方指引编译即可
 
