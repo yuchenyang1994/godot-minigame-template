@@ -183,16 +183,19 @@ class Response {
 
 function Fetch(url, options = {}) {
   return new Promise((resolve, reject) => {
+      const headers = options.headers.reduce((obj, [key, value]) => {
+        obj[key] = value;
+        return obj;
+      }, {});
+      const responseType = headers["Accept"]  === "application/octet-stream"? "arraybuffer": "text";
+      const dataType = headers["Content-Type"] === "application/json" ? "json" : ""
       wx.request({
           url,
           method: options.method || 'GET',
           data: options.body || {},
-          header: options.headers.reduce((obj, [key, value]) => {
-            obj[key] = value;
-            return obj;
-          }, {}),
-          dataType: options.dataType || 'json',
-          responseType: options.responseType || 'text',
+          header: headers,
+          dataType: dataType,
+          responseType: responseType,
           success(res) {
               const response = new Response(res.data, {
                 status: res.statusCode,
