@@ -1418,7 +1418,11 @@
 	    this.onmessage = null;
 	    this.onopen = null;
 	    this.protocol = '';
-	    this.readyState = 3;
+      this.readyState = 3;
+      this.OPEN = 1;
+      this.CONNECTING = 0;
+      this.CLOSING = 2;
+      this.CLOSED = 3;
 
 	    if (typeof url !== 'string' || !/(^ws:\/\/)|(^wss:\/\/)/.test(url)) {
 	      throw new TypeError('Failed to construct \'WebSocket\': The URL \'' + url + '\' is invalid');
@@ -1484,7 +1488,7 @@
 	    value: function send(data) {
 	      if (typeof data !== 'string' && !(data instanceof ArrayBuffer)) {
 	        throw new TypeError('Failed to send message: The data ' + data + ' is invalid');
-	      }
+        }
 
 	      var socketTask = _socketTask.get(this);
 
