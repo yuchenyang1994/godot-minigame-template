@@ -8,5 +8,9 @@
       "name": "engine"
     }
   ],
-  "plugins": {}
+  "plugins": {},
+  "workers": {
+    "path": "js/worker",
+    "isSubpackage": false
+  }
 }

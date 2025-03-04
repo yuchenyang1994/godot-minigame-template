@@ -1,4 +1,5 @@
 const createAudioContext = wx.createWebAudioContext;
+const positionWorker = wx.createWorker('js/worker/position_reporting.js')
 
 var Godot = (() => {
   var _scriptName = typeof document != 'undefined' ? document.currentScript?.src : undefined;
@@ -190,7 +191,6 @@ var Godot = (() => {
         if (!Module["noFSInit"] && !FS.initialized) FS.init();
         FS.ignorePermissions = false;
         TTY.init();
-        SOCKFS.root = FS.mount(SOCKFS, {}, null);
         callRuntimeCallbacks(__ATINIT__)
       }
 
@@ -928,9 +928,6 @@ var Godot = (() => {
             }
           }
         }
-      };
-      var zeroMemory = (address, size) => {
-        HEAPU8.fill(0, address, address + size)
       };
       var alignMemory = (size, alignment) => {
         assert(alignment, "alignment argument is required");
@@ -3036,7 +3033,7 @@ var Godot = (() => {
           var path = PATH.join2(typeof parent == "string" ? parent : FS.getPath(parent), name);
           var mode = FS_getMode(!!input, !!output);
           FS.createDevice.major ??= 64;
-          var dev= FS.makedev(FS.createDevice.major++, 0);
+          var dev = FS.makedev(FS.createDevice.major++, 0);
           FS.registerDevice(dev, {
             open(stream) {
               stream.seekable = false
@@ -3328,745 +3325,6 @@ var Godot = (() => {
           return ret
         }
       };
-      var ___syscall__newselect = function (nfds, readfds, writefds, exceptfds, timeout) {
-        try {
-          assert(nfds <= 64, "nfds must be less than or equal to 64");
-          var total = 0;
-          var srcReadLow = readfds ? HEAP32[readfds >> 2] : 0,
-            srcReadHigh = readfds ? HEAP32[readfds + 4 >> 2] : 0;
-          var srcWriteLow = writefds ? HEAP32[writefds >> 2] : 0,
-            srcWriteHigh = writefds ? HEAP32[writefds + 4 >> 2] : 0;
-          var srcExceptLow = exceptfds ? HEAP32[exceptfds >> 2] : 0,
-            srcExceptHigh = exceptfds ? HEAP32[exceptfds + 4 >> 2] : 0;
-          var dstReadLow = 0,
-            dstReadHigh = 0;
-          var dstWriteLow = 0,
-            dstWriteHigh = 0;
-          var dstExceptLow = 0,
-            dstExceptHigh = 0;
-          var allLow = (readfds ? HEAP32[readfds >> 2] : 0) | (writefds ? HEAP32[writefds >> 2] : 0) | (exceptfds ? HEAP32[exceptfds >> 2] : 0);
-          var allHigh = (readfds ? HEAP32[readfds + 4 >> 2] : 0) | (writefds ? HEAP32[writefds + 4 >> 2] : 0) | (exceptfds ? HEAP32[exceptfds + 4 >> 2] : 0);
-          var check = (fd, low, high, val) => fd < 32 ? low & val : high & val;
-          for (var fd = 0; fd < nfds; fd++) {
-            var mask = 1 << fd % 32;
-            if (!check(fd, allLow, allHigh, mask)) {
-              continue
-            }
-            var stream = SYSCALLS.getStreamFromFD(fd);
-            var flags = SYSCALLS.DEFAULT_POLLMASK;
-            if (stream.stream_ops.poll) {
-              var timeoutInMillis = -1;
-              if (timeout) {
-                var tv_sec = readfds ? HEAP32[timeout >> 2] : 0,
-                  tv_usec = readfds ? HEAP32[timeout + 4 >> 2] : 0;
-                timeoutInMillis = (tv_sec + tv_usec / 1e6) * 1e3
-              }
-              flags = stream.stream_ops.poll(stream, timeoutInMillis)
-            }
-            if (flags & 1 && check(fd, srcReadLow, srcReadHigh, mask)) {
-              fd < 32 ? dstReadLow = dstReadLow | mask : dstReadHigh = dstReadHigh | mask;
-              total++
-            }
-            if (flags & 4 && check(fd, srcWriteLow, srcWriteHigh, mask)) {
-              fd < 32 ? dstWriteLow = dstWriteLow | mask : dstWriteHigh = dstWriteHigh | mask;
-              total++
-            }
-            if (flags & 2 && check(fd, srcExceptLow, srcExceptHigh, mask)) {
-              fd < 32 ? dstExceptLow = dstExceptLow | mask : dstExceptHigh = dstExceptHigh | mask;
-              total++
-            }
-          }
-          if (readfds) {
-            HEAP32[readfds >> 2] = dstReadLow;
-            HEAP32[readfds + 4 >> 2] = dstReadHigh
-          }
-          if (writefds) {
-            HEAP32[writefds >> 2] = dstWriteLow;
-            HEAP32[writefds + 4 >> 2] = dstWriteHigh
-          }
-          if (exceptfds) {
-            HEAP32[exceptfds >> 2] = dstExceptLow;
-            HEAP32[exceptfds + 4 >> 2] = dstExceptHigh
-          }
-          return total
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      };
-      var SOCKFS = {
-        websocketArgs: {},
-        callbacks: {},
-        on(event, callback) {
-          SOCKFS.callbacks[event] = callback
-        },
-        emit(event, param) {
-          SOCKFS.callbacks[event]?.(param)
-        },
-        mount(mount) {
-          SOCKFS.websocketArgs = Module["websocket"] || {};
-          (Module["websocket"] ??= {})["on"] = SOCKFS.on;
-          return FS.createNode(null, "/", 16895, 0)
-        },
-        createSocket(family, type, protocol) {
-          type &= ~526336;
-          var streaming = type == 1;
-          if (streaming && protocol && protocol != 6) {
-            throw new FS.ErrnoError(66)
-          }
-          var sock = {
-            family,
-            type,
-            protocol,
-            server: null,
-            error: null,
-            peers: {},
-            pending: [],
-            recv_queue: [],
-            sock_ops: SOCKFS.websocket_sock_ops
-          };
-          var name = SOCKFS.nextname();
-          var node = FS.createNode(SOCKFS.root, name, 49152, 0);
-          node.sock = sock;
-          var stream = FS.createStream({
-            path: name,
-            node,
-            flags: 2,
-            seekable: false,
-            stream_ops: SOCKFS.stream_ops
-          });
-          sock.stream = stream;
-          return sock
-        },
-        getSocket(fd) {
-          var stream = FS.getStream(fd);
-          if (!stream || !FS.isSocket(stream.node.mode)) {
-            return null
-          }
-          return stream.node.sock
-        },
-        stream_ops: {
-          poll(stream) {
-            var sock = stream.node.sock;
-            return sock.sock_ops.poll(sock)
-          },
-          ioctl(stream, request, varargs) {
-            var sock = stream.node.sock;
-            return sock.sock_ops.ioctl(sock, request, varargs)
-          },
-          read(stream, buffer, offset, length, position) {
-            var sock = stream.node.sock;
-            var msg = sock.sock_ops.recvmsg(sock, length);
-            if (!msg) {
-              return 0
-            }
-            buffer.set(msg.buffer, offset);
-            return msg.buffer.length
-          },
-          write(stream, buffer, offset, length, position) {
-            var sock = stream.node.sock;
-            return sock.sock_ops.sendmsg(sock, buffer, offset, length)
-          },
-          close(stream) {
-            var sock = stream.node.sock;
-            sock.sock_ops.close(sock)
-          }
-        },
-        nextname() {
-          if (!SOCKFS.nextname.current) {
-            SOCKFS.nextname.current = 0
-          }
-          return `socket[${SOCKFS.nextname.current++}]`
-        },
-        websocket_sock_ops: {
-          createPeer(sock, addr, port) {
-            var ws;
-            if (typeof addr == "object") {
-              ws = addr;
-              addr = null;
-              port = null
-            }
-            if (ws) {
-              if (ws._socket) {
-                addr = ws._socket.remoteAddress;
-                port = ws._socket.remotePort
-              } else {
-                var result = /ws[s]?:\/\/([^:]+):(\d+)/.exec(ws.url);
-                if (!result) {
-                  throw new Error("WebSocket URL must be in the format ws(s)://address:port")
-                }
-                addr = result[1];
-                port = parseInt(result[2], 10)
-              }
-            } else {
-              try {
-                var url = "ws:#".replace("#", "//");
-                var subProtocols = "binary";
-                var opts = undefined;
-                if (SOCKFS.websocketArgs["url"]) {
-                  url = SOCKFS.websocketArgs["url"]
-                }
-                if (SOCKFS.websocketArgs["subprotocol"]) {
-                  subProtocols = SOCKFS.websocketArgs["subprotocol"]
-                } else if (SOCKFS.websocketArgs["subprotocol"] === null) {
-                  subProtocols = "null"
-                }
-                if (url === "ws://" || url === "wss://") {
-                  var parts = addr.split("/");
-                  url = url + parts[0] + ":" + port + "/" + parts.slice(1).join("/")
-                }
-                if (subProtocols !== "null") {
-                  subProtocols = subProtocols.replace(/^ +| +$/g, "").split(/ *, */);
-                  opts = subProtocols
-                }
-                var WebSocketConstructor; {
-                  WebSocketConstructor = WebSocket
-                }
-                ws = new WebSocketConstructor(url, opts);
-                ws.binaryType = "arraybuffer"
-              } catch (e) {
-                throw new FS.ErrnoError(23)
-              }
-            }
-            var peer = {
-              addr,
-              port,
-              socket: ws,
-              msg_send_queue: []
-            };
-            SOCKFS.websocket_sock_ops.addPeer(sock, peer);
-            SOCKFS.websocket_sock_ops.handlePeerEvents(sock, peer);
-            if (sock.type === 2 && typeof sock.sport != "undefined") {
-              peer.msg_send_queue.push(new Uint8Array([255, 255, 255, 255, "p".charCodeAt(0), "o".charCodeAt(0), "r".charCodeAt(0), "t".charCodeAt(0), (sock.sport & 65280) >> 8, sock.sport & 255]))
-            }
-            return peer
-          },
-          getPeer(sock, addr, port) {
-            return sock.peers[addr + ":" + port]
-          },
-          addPeer(sock, peer) {
-            sock.peers[peer.addr + ":" + peer.port] = peer
-          },
-          removePeer(sock, peer) {
-            delete sock.peers[peer.addr + ":" + peer.port]
-          },
-          handlePeerEvents(sock, peer) {
-            var first = true;
-            var handleOpen = function () {
-              sock.connecting = false;
-              SOCKFS.emit("open", sock.stream.fd);
-              try {
-                var queued = peer.msg_send_queue.shift();
-                while (queued) {
-                  peer.socket.send(queued);
-                  queued = peer.msg_send_queue.shift()
-                }
-              } catch (e) {
-                peer.socket.close()
-              }
-            };
-
-            function handleMessage(data) {
-              if (typeof data == "string") {
-                var encoder = new TextEncoder;
-                data = encoder.encode(data)
-              } else {
-                assert(data.byteLength !== undefined);
-                if (data.byteLength == 0) {
-                  return
-                }
-                data = new Uint8Array(data)
-              }
-              var wasfirst = first;
-              first = false;
-              if (wasfirst && data.length === 10 && data[0] === 255 && data[1] === 255 && data[2] === 255 && data[3] === 255 && data[4] === "p".charCodeAt(0) && data[5] === "o".charCodeAt(0) && data[6] === "r".charCodeAt(0) && data[7] === "t".charCodeAt(0)) {
-                var newport = data[8] << 8 | data[9];
-                SOCKFS.websocket_sock_ops.removePeer(sock, peer);
-                peer.port = newport;
-                SOCKFS.websocket_sock_ops.addPeer(sock, peer);
-                return
-              }
-              sock.recv_queue.push({
-                addr: peer.addr,
-                port: peer.port,
-                data
-              });
-              SOCKFS.emit("message", sock.stream.fd)
-            }
-            if (ENVIRONMENT_IS_NODE) {
-              peer.socket.on("open", handleOpen);
-              peer.socket.on("message", function (data, isBinary) {
-                if (!isBinary) {
-                  return
-                }
-                handleMessage(new Uint8Array(data).buffer)
-              });
-              peer.socket.on("close", function () {
-                SOCKFS.emit("close", sock.stream.fd)
-              });
-              peer.socket.on("error", function (error) {
-                sock.error = 14;
-                SOCKFS.emit("error", [sock.stream.fd, sock.error, "ECONNREFUSED: Connection refused"])
-              })
-            } else {
-              peer.socket.onopen = handleOpen;
-              peer.socket.onclose = function () {
-                SOCKFS.emit("close", sock.stream.fd)
-              };
-              peer.socket.onmessage = function peer_socket_onmessage(event) {
-                handleMessage(event.data)
-              };
-              peer.socket.onerror = function (error) {
-                sock.error = 14;
-                SOCKFS.emit("error", [sock.stream.fd, sock.error, "ECONNREFUSED: Connection refused"])
-              }
-            }
-          },
-          poll(sock) {
-            if (sock.type === 1 && sock.server) {
-              return sock.pending.length ? 64 | 1 : 0
-            }
-            var mask = 0;
-            var dest = sock.type === 1 ? SOCKFS.websocket_sock_ops.getPeer(sock, sock.daddr, sock.dport) : null;
-            if (sock.recv_queue.length || !dest || dest && dest.socket.readyState === dest.socket.CLOSING || dest && dest.socket.readyState === dest.socket.CLOSED) {
-              mask |= 64 | 1
-            }
-            if (!dest || dest && dest.socket.readyState === dest.socket.OPEN) {
-              mask |= 4
-            }
-            if (dest && dest.socket.readyState === dest.socket.CLOSING || dest && dest.socket.readyState === dest.socket.CLOSED) {
-              if (sock.connecting) {
-                mask |= 4
-              } else {
-                mask |= 16
-              }
-            }
-            return mask
-          },
-          ioctl(sock, request, arg) {
-            switch (request) {
-              case 21531:
-                var bytes = 0;
-                if (sock.recv_queue.length) {
-                  bytes = sock.recv_queue[0].data.length
-                }
-                HEAP32[arg >> 2] = bytes;
-                return 0;
-              default:
-                return 28
-            }
-          },
-          close(sock) {
-            if (sock.server) {
-              try {
-                sock.server.close()
-              } catch (e) {}
-              sock.server = null
-            }
-            var peers = Object.keys(sock.peers);
-            for (var i = 0; i < peers.length; i++) {
-              var peer = sock.peers[peers[i]];
-              try {
-                peer.socket.close()
-              } catch (e) {}
-              SOCKFS.websocket_sock_ops.removePeer(sock, peer)
-            }
-            return 0
-          },
-          bind(sock, addr, port) {
-            if (typeof sock.saddr != "undefined" || typeof sock.sport != "undefined") {
-              throw new FS.ErrnoError(28)
-            }
-            sock.saddr = addr;
-            sock.sport = port;
-            if (sock.type === 2) {
-              if (sock.server) {
-                sock.server.close();
-                sock.server = null
-              }
-              try {
-                sock.sock_ops.listen(sock, 0)
-              } catch (e) {
-                if (!(e.name === "ErrnoError")) throw e;
-                if (e.errno !== 138) throw e
-              }
-            }
-          },
-          connect(sock, addr, port) {
-            if (sock.server) {
-              throw new FS.ErrnoError(138)
-            }
-            if (typeof sock.daddr != "undefined" && typeof sock.dport != "undefined") {
-              var dest = SOCKFS.websocket_sock_ops.getPeer(sock, sock.daddr, sock.dport);
-              if (dest) {
-                if (dest.socket.readyState === dest.socket.CONNECTING) {
-                  throw new FS.ErrnoError(7)
-                } else {
-                  throw new FS.ErrnoError(30)
-                }
-              }
-            }
-            var peer = SOCKFS.websocket_sock_ops.createPeer(sock, addr, port);
-            sock.daddr = peer.addr;
-            sock.dport = peer.port;
-            sock.connecting = true
-          },
-          listen(sock, backlog) {
-            if (!ENVIRONMENT_IS_NODE) {
-              throw new FS.ErrnoError(138)
-            }
-          },
-          accept(listensock) {
-            if (!listensock.server || !listensock.pending.length) {
-              throw new FS.ErrnoError(28)
-            }
-            var newsock = listensock.pending.shift();
-            newsock.stream.flags = listensock.stream.flags;
-            return newsock
-          },
-          getname(sock, peer) {
-            var addr, port;
-            if (peer) {
-              if (sock.daddr === undefined || sock.dport === undefined) {
-                throw new FS.ErrnoError(53)
-              }
-              addr = sock.daddr;
-              port = sock.dport
-            } else {
-              addr = sock.saddr || 0;
-              port = sock.sport || 0
-            }
-            return {
-              addr,
-              port
-            }
-          },
-          sendmsg(sock, buffer, offset, length, addr, port) {
-            if (sock.type === 2) {
-              if (addr === undefined || port === undefined) {
-                addr = sock.daddr;
-                port = sock.dport
-              }
-              if (addr === undefined || port === undefined) {
-                throw new FS.ErrnoError(17)
-              }
-            } else {
-              addr = sock.daddr;
-              port = sock.dport
-            }
-            var dest = SOCKFS.websocket_sock_ops.getPeer(sock, addr, port);
-            if (sock.type === 1) {
-              if (!dest || dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
-                throw new FS.ErrnoError(53)
-              }
-            }
-            if (ArrayBuffer.isView(buffer)) {
-              offset += buffer.byteOffset;
-              buffer = buffer.buffer
-            }
-            var data = buffer.slice(offset, offset + length);
-            if (!dest || dest.socket.readyState !== dest.socket.OPEN) {
-              if (sock.type === 2) {
-                if (!dest || dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
-                  dest = SOCKFS.websocket_sock_ops.createPeer(sock, addr, port)
-                }
-              }
-              dest.msg_send_queue.push(data);
-              return length
-            }
-            try {
-              dest.socket.send(data);
-              return length
-            } catch (e) {
-              throw new FS.ErrnoError(28)
-            }
-          },
-          recvmsg(sock, length) {
-            if (sock.type === 1 && sock.server) {
-              throw new FS.ErrnoError(53)
-            }
-            var queued = sock.recv_queue.shift();
-            if (!queued) {
-              if (sock.type === 1) {
-                var dest = SOCKFS.websocket_sock_ops.getPeer(sock, sock.daddr, sock.dport);
-                if (!dest) {
-                  throw new FS.ErrnoError(53)
-                }
-                if (dest.socket.readyState === dest.socket.CLOSING || dest.socket.readyState === dest.socket.CLOSED) {
-                  return null
-                }
-                throw new FS.ErrnoError(6)
-              }
-              throw new FS.ErrnoError(6)
-            }
-            var queuedLength = queued.data.byteLength || queued.data.length;
-            var queuedOffset = queued.data.byteOffset || 0;
-            var queuedBuffer = queued.data.buffer || queued.data;
-            var bytesRead = Math.min(length, queuedLength);
-            var res = {
-              buffer: new Uint8Array(queuedBuffer, queuedOffset, bytesRead),
-              addr: queued.addr,
-              port: queued.port
-            };
-            if (sock.type === 1 && bytesRead < queuedLength) {
-              var bytesRemaining = queuedLength - bytesRead;
-              queued.data = new Uint8Array(queuedBuffer, queuedOffset + bytesRead, bytesRemaining);
-              sock.recv_queue.unshift(queued)
-            }
-            return res
-          }
-        }
-      };
-      var getSocketFromFD = fd => {
-        var socket = SOCKFS.getSocket(fd);
-        if (!socket) throw new FS.ErrnoError(8);
-        return socket
-      };
-      var inetPton4 = str => {
-        var b = str.split(".");
-        for (var i = 0; i < 4; i++) {
-          var tmp = Number(b[i]);
-          if (isNaN(tmp)) return null;
-          b[i] = tmp
-        }
-        return (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0
-      };
-      var jstoi_q = str => parseInt(str);
-      var inetPton6 = str => {
-        var words;
-        var w, offset, z;
-        var valid6regx = /^((?=.*::)(?!.*::.+::)(::)?([\dA-F]{1,4}:(:|\b)|){5}|([\dA-F]{1,4}:){6})((([\dA-F]{1,4}((?!\3)::|:\b|$))|(?!\2\3)){2}|(((2[0-4]|1\d|[1-9])?\d|25[0-5])\.?\b){4})$/i;
-        var parts = [];
-        if (!valid6regx.test(str)) {
-          return null
-        }
-        if (str === "::") {
-          return [0, 0, 0, 0, 0, 0, 0, 0]
-        }
-        if (str.startsWith("::")) {
-          str = str.replace("::", "Z:")
-        } else {
-          str = str.replace("::", ":Z:")
-        }
-        if (str.indexOf(".") > 0) {
-          str = str.replace(new RegExp("[.]", "g"), ":");
-          words = str.split(":");
-          words[words.length - 4] = jstoi_q(words[words.length - 4]) + jstoi_q(words[words.length - 3]) * 256;
-          words[words.length - 3] = jstoi_q(words[words.length - 2]) + jstoi_q(words[words.length - 1]) * 256;
-          words = words.slice(0, words.length - 2)
-        } else {
-          words = str.split(":")
-        }
-        offset = 0;
-        z = 0;
-        for (w = 0; w < words.length; w++) {
-          if (typeof words[w] == "string") {
-            if (words[w] === "Z") {
-              for (z = 0; z < 8 - words.length + 1; z++) {
-                parts[w + z] = 0
-              }
-              offset = z - 1
-            } else {
-              parts[w + offset] = _htons(parseInt(words[w], 16))
-            }
-          } else {
-            parts[w + offset] = words[w]
-          }
-        }
-        return [parts[1] << 16 | parts[0], parts[3] << 16 | parts[2], parts[5] << 16 | parts[4], parts[7] << 16 | parts[6]]
-      };
-      var writeSockaddr = (sa, family, addr, port, addrlen) => {
-        switch (family) {
-          case 2:
-            addr = inetPton4(addr);
-            zeroMemory(sa, 16);
-            if (addrlen) {
-              HEAP32[addrlen >> 2] = 16
-            }
-            HEAP16[sa >> 1] = family;
-            HEAP32[sa + 4 >> 2] = addr;
-            HEAP16[sa + 2 >> 1] = _htons(port);
-            break;
-          case 10:
-            addr = inetPton6(addr);
-            zeroMemory(sa, 28);
-            if (addrlen) {
-              HEAP32[addrlen >> 2] = 28
-            }
-            HEAP32[sa >> 2] = family;
-            HEAP32[sa + 8 >> 2] = addr[0];
-            HEAP32[sa + 12 >> 2] = addr[1];
-            HEAP32[sa + 16 >> 2] = addr[2];
-            HEAP32[sa + 20 >> 2] = addr[3];
-            HEAP16[sa + 2 >> 1] = _htons(port);
-            break;
-          default:
-            return 5
-        }
-        return 0
-      };
-      var DNS = {
-        address_map: {
-          id: 1,
-          addrs: {},
-          names: {}
-        },
-        lookup_name(name) {
-          var res = inetPton4(name);
-          if (res !== null) {
-            return name
-          }
-          res = inetPton6(name);
-          if (res !== null) {
-            return name
-          }
-          var addr;
-          if (DNS.address_map.addrs[name]) {
-            addr = DNS.address_map.addrs[name]
-          } else {
-            var id = DNS.address_map.id++;
-            assert(id < 65535, "exceeded max address mappings of 65535");
-            addr = "172.29." + (id & 255) + "." + (id & 65280);
-            DNS.address_map.names[addr] = name;
-            DNS.address_map.addrs[name] = addr
-          }
-          return addr
-        },
-        lookup_addr(addr) {
-          if (DNS.address_map.names[addr]) {
-            return DNS.address_map.names[addr]
-          }
-          return null
-        }
-      };
-
-      function ___syscall_accept4(fd, addr, addrlen, flags, d1, d2) {
-        try {
-          var sock = getSocketFromFD(fd);
-          var newsock = sock.sock_ops.accept(sock);
-          if (addr) {
-            var errno = writeSockaddr(addr, newsock.family, DNS.lookup_name(newsock.daddr), newsock.dport, addrlen);
-            assert(!errno)
-          }
-          return newsock.stream.fd
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-      var inetNtop4 = addr => (addr & 255) + "." + (addr >> 8 & 255) + "." + (addr >> 16 & 255) + "." + (addr >> 24 & 255);
-      var inetNtop6 = ints => {
-        var str = "";
-        var word = 0;
-        var longest = 0;
-        var lastzero = 0;
-        var zstart = 0;
-        var len = 0;
-        var i = 0;
-        var parts = [ints[0] & 65535, ints[0] >> 16, ints[1] & 65535, ints[1] >> 16, ints[2] & 65535, ints[2] >> 16, ints[3] & 65535, ints[3] >> 16];
-        var hasipv4 = true;
-        var v4part = "";
-        for (i = 0; i < 5; i++) {
-          if (parts[i] !== 0) {
-            hasipv4 = false;
-            break
-          }
-        }
-        if (hasipv4) {
-          v4part = inetNtop4(parts[6] | parts[7] << 16);
-          if (parts[5] === -1) {
-            str = "::ffff:";
-            str += v4part;
-            return str
-          }
-          if (parts[5] === 0) {
-            str = "::";
-            if (v4part === "0.0.0.0") v4part = "";
-            if (v4part === "0.0.0.1") v4part = "1";
-            str += v4part;
-            return str
-          }
-        }
-        for (word = 0; word < 8; word++) {
-          if (parts[word] === 0) {
-            if (word - lastzero > 1) {
-              len = 0
-            }
-            lastzero = word;
-            len++
-          }
-          if (len > longest) {
-            longest = len;
-            zstart = word - longest + 1
-          }
-        }
-        for (word = 0; word < 8; word++) {
-          if (longest > 1) {
-            if (parts[word] === 0 && word >= zstart && word < zstart + longest) {
-              if (word === zstart) {
-                str += ":";
-                if (zstart === 0) str += ":"
-              }
-              continue
-            }
-          }
-          str += Number(_ntohs(parts[word] & 65535)).toString(16);
-          str += word < 7 ? ":" : ""
-        }
-        return str
-      };
-      var readSockaddr = (sa, salen) => {
-        var family = HEAP16[sa >> 1];
-        var port = _ntohs(HEAPU16[sa + 2 >> 1]);
-        var addr;
-        switch (family) {
-          case 2:
-            if (salen !== 16) {
-              return {
-                errno: 28
-              }
-            }
-            addr = HEAP32[sa + 4 >> 2];
-            addr = inetNtop4(addr);
-            break;
-          case 10:
-            if (salen !== 28) {
-              return {
-                errno: 28
-              }
-            }
-            addr = [HEAP32[sa + 8 >> 2], HEAP32[sa + 12 >> 2], HEAP32[sa + 16 >> 2], HEAP32[sa + 20 >> 2]];
-            addr = inetNtop6(addr);
-            break;
-          default:
-            return {
-              errno: 5
-            }
-        }
-        return {
-          family,
-          addr,
-          port
-        }
-      };
-      var getSocketAddress = (addrp, addrlen) => {
-        var info = readSockaddr(addrp, addrlen);
-        if (info.errno) throw new FS.ErrnoError(info.errno);
-        info.addr = DNS.lookup_addr(info.addr) || info.addr;
-        return info
-      };
-
-      function ___syscall_bind(fd, addr, addrlen, d1, d2, d3) {
-        try {
-          var sock = getSocketFromFD(fd);
-          var info = getSocketAddress(addr, addrlen);
-          sock.sock_ops.bind(sock, info.addr, info.port);
-          return 0
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
 
       function ___syscall_chdir(path) {
         try {
@@ -4083,18 +3341,6 @@ var Godot = (() => {
         try {
           path = SYSCALLS.getStr(path);
           FS.chmod(path, mode);
-          return 0
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
-      function ___syscall_connect(fd, addr, addrlen, d1, d2, d3) {
-        try {
-          var sock = getSocketFromFD(fd);
-          var info = getSocketAddress(addr, addrlen);
-          sock.sock_ops.connect(sock, info.addr, info.port);
           return 0
         } catch (e) {
           if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
@@ -4278,36 +3524,6 @@ var Godot = (() => {
         }
       }
 
-      function ___syscall_getsockname(fd, addr, addrlen, d1, d2, d3) {
-        try {
-          var sock = getSocketFromFD(fd);
-          var errno = writeSockaddr(addr, sock.family, DNS.lookup_name(sock.saddr || "0.0.0.0"), sock.sport, addrlen);
-          assert(!errno);
-          return 0
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
-      function ___syscall_getsockopt(fd, level, optname, optval, optlen, d1) {
-        try {
-          var sock = getSocketFromFD(fd);
-          if (level === 1) {
-            if (optname === 4) {
-              HEAP32[optval >> 2] = sock.error;
-              HEAP32[optlen >> 2] = 4;
-              sock.error = null;
-              return 0
-            }
-          }
-          return -50
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
       function ___syscall_ioctl(fd, op, varargs) {
         SYSCALLS.varargs = varargs;
         try {
@@ -4404,17 +3620,6 @@ var Godot = (() => {
         }
       }
 
-      function ___syscall_listen(fd, backlog) {
-        try {
-          var sock = getSocketFromFD(fd);
-          sock.sock_ops.listen(sock, backlog);
-          return 0
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
       function ___syscall_lstat64(path, buf) {
         try {
           path = SYSCALLS.getStr(path);
@@ -4489,32 +3694,6 @@ var Godot = (() => {
         }
       }
 
-      function ___syscall_poll(fds, nfds, timeout) {
-        try {
-          var nonzero = 0;
-          for (var i = 0; i < nfds; i++) {
-            var pollfd = fds + 8 * i;
-            var fd = HEAP32[pollfd >> 2];
-            var events = HEAP16[pollfd + 4 >> 1];
-            var mask = 32;
-            var stream = FS.getStream(fd);
-            if (stream) {
-              mask = SYSCALLS.DEFAULT_POLLMASK;
-              if (stream.stream_ops.poll) {
-                mask = stream.stream_ops.poll(stream, -1)
-              }
-            }
-            mask &= events | 8 | 16;
-            if (mask) nonzero++;
-            HEAP16[pollfd + 6 >> 1] = mask
-          }
-          return nonzero
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
       function ___syscall_readlinkat(dirfd, path, buf, bufsize) {
         try {
           path = SYSCALLS.getStr(path);
@@ -4526,23 +3705,6 @@ var Godot = (() => {
           stringToUTF8(ret, buf, bufsize + 1);
           HEAP8[buf + len] = endChar;
           return len
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
-      function ___syscall_recvfrom(fd, buf, len, flags, addr, addrlen) {
-        try {
-          var sock = getSocketFromFD(fd);
-          var msg = sock.sock_ops.recvmsg(sock, len);
-          if (!msg) return 0;
-          if (addr) {
-            var errno = writeSockaddr(addr, sock.family, DNS.lookup_name(msg.addr), msg.port, addrlen);
-            assert(!errno)
-          }
-          HEAPU8.set(msg.buffer, buf);
-          return msg.buffer.byteLength
         } catch (e) {
           if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
           return -e.errno
@@ -4568,31 +3730,6 @@ var Godot = (() => {
           path = SYSCALLS.getStr(path);
           FS.rmdir(path);
           return 0
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
-      function ___syscall_sendto(fd, message, length, flags, addr, addr_len) {
-        try {
-          var sock = getSocketFromFD(fd);
-          if (!addr) {
-            return FS.write(sock.stream, HEAP8, message, length)
-          }
-          var dest = getSocketAddress(addr, addr_len);
-          return sock.sock_ops.sendmsg(sock, HEAP8, message, length, dest.addr, dest.port)
-        } catch (e) {
-          if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
-          return -e.errno
-        }
-      }
-
-      function ___syscall_socket(domain, type, protocol) {
-        try {
-          var sock = SOCKFS.createSocket(domain, type, protocol);
-          assert(sock.stream.fd < 64);
-          return sock.stream.fd
         } catch (e) {
           if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
           return -e.errno
@@ -4718,6 +3855,12 @@ var Godot = (() => {
           return EXITSTATUS
         }
         checkStackCookie();
+        console.log(e)
+        if (e instanceof WebAssembly.RuntimeError) {
+          if (_emscripten_stack_get_current() <= 0) {
+            err("Stack overflow detected.  You can try increasing -sSTACK_SIZE (currently set to 5242880)")
+          }
+        }
         quit_(1, e)
       };
       var keepRuntimeAlive = () => noExitRuntime || runtimeKeepaliveCounter > 0;
@@ -5364,6 +4507,7 @@ var Godot = (() => {
         _exit(status)
       };
       var getHeapMax = () => 2147483648;
+      var _emscripten_get_heap_max = () => getHeapMax();
       var growMemory = size => {
         var b = wasmMemory.buffer;
         var pages = (size - b.byteLength + 65535) / 65536 | 0;
@@ -5740,172 +4884,6 @@ var Godot = (() => {
           return e.errno
         }
       }
-      var _getaddrinfo = (node, service, hint, out) => {
-        var addr = 0;
-        var port = 0;
-        var flags = 0;
-        var family = 0;
-        var type = 0;
-        var proto = 0;
-        var ai;
-
-        function allocaddrinfo(family, type, proto, canon, addr, port) {
-          var sa, salen, ai;
-          var errno;
-          salen = family === 10 ? 28 : 16;
-          addr = family === 10 ? inetNtop6(addr) : inetNtop4(addr);
-          sa = _malloc(salen);
-          errno = writeSockaddr(sa, family, addr, port);
-          assert(!errno);
-          ai = _malloc(32);
-          HEAP32[ai + 4 >> 2] = family;
-          HEAP32[ai + 8 >> 2] = type;
-          HEAP32[ai + 12 >> 2] = proto;
-          HEAPU32[ai + 24 >> 2] = canon;
-          HEAPU32[ai + 20 >> 2] = sa;
-          if (family === 10) {
-            HEAP32[ai + 16 >> 2] = 28
-          } else {
-            HEAP32[ai + 16 >> 2] = 16
-          }
-          HEAP32[ai + 28 >> 2] = 0;
-          return ai
-        }
-        if (hint) {
-          flags = HEAP32[hint >> 2];
-          family = HEAP32[hint + 4 >> 2];
-          type = HEAP32[hint + 8 >> 2];
-          proto = HEAP32[hint + 12 >> 2]
-        }
-        if (type && !proto) {
-          proto = type === 2 ? 17 : 6
-        }
-        if (!type && proto) {
-          type = proto === 17 ? 2 : 1
-        }
-        if (proto === 0) {
-          proto = 6
-        }
-        if (type === 0) {
-          type = 1
-        }
-        if (!node && !service) {
-          return -2
-        }
-        if (flags & ~(1 | 2 | 4 | 1024 | 8 | 16 | 32)) {
-          return -1
-        }
-        if (hint !== 0 && HEAP32[hint >> 2] & 2 && !node) {
-          return -1
-        }
-        if (flags & 32) {
-          return -2
-        }
-        if (type !== 0 && type !== 1 && type !== 2) {
-          return -7
-        }
-        if (family !== 0 && family !== 2 && family !== 10) {
-          return -6
-        }
-        if (service) {
-          service = UTF8ToString(service);
-          port = parseInt(service, 10);
-          if (isNaN(port)) {
-            if (flags & 1024) {
-              return -2
-            }
-            return -8
-          }
-        }
-        if (!node) {
-          if (family === 0) {
-            family = 2
-          }
-          if ((flags & 1) === 0) {
-            if (family === 2) {
-              addr = _htonl(2130706433)
-            } else {
-              addr = [0, 0, 0, _htonl(1)]
-            }
-          }
-          ai = allocaddrinfo(family, type, proto, null, addr, port);
-          HEAPU32[out >> 2] = ai;
-          return 0
-        }
-        node = UTF8ToString(node);
-        addr = inetPton4(node);
-        if (addr !== null) {
-          if (family === 0 || family === 2) {
-            family = 2
-          } else if (family === 10 && flags & 8) {
-            addr = [0, 0, _htonl(65535), addr];
-            family = 10
-          } else {
-            return -2
-          }
-        } else {
-          addr = inetPton6(node);
-          if (addr !== null) {
-            if (family === 0 || family === 10) {
-              family = 10
-            } else {
-              return -2
-            }
-          }
-        }
-        if (addr != null) {
-          ai = allocaddrinfo(family, type, proto, node, addr, port);
-          HEAPU32[out >> 2] = ai;
-          return 0
-        }
-        if (flags & 4) {
-          return -2
-        }
-        node = DNS.lookup_name(node);
-        addr = inetPton4(node);
-        if (family === 0) {
-          family = 2
-        } else if (family === 10) {
-          addr = [0, 0, _htonl(65535), addr]
-        }
-        ai = allocaddrinfo(family, type, proto, null, addr, port);
-        HEAPU32[out >> 2] = ai;
-        return 0
-      };
-      var _getnameinfo = (sa, salen, node, nodelen, serv, servlen, flags) => {
-        var info = readSockaddr(sa, salen);
-        if (info.errno) {
-          return -6
-        }
-        var port = info.port;
-        var addr = info.addr;
-        var overflowed = false;
-        if (node && nodelen) {
-          var lookup;
-          if (flags & 1 || !(lookup = DNS.lookup_addr(addr))) {
-            if (flags & 8) {
-              return -2
-            }
-          } else {
-            addr = lookup
-          }
-          var numBytesWrittenExclNull = stringToUTF8(addr, node, nodelen);
-          if (numBytesWrittenExclNull + 1 >= nodelen) {
-            overflowed = true
-          }
-        }
-        if (serv && servlen) {
-          port = "" + port;
-          var numBytesWrittenExclNull = stringToUTF8(port, serv, servlen);
-          if (numBytesWrittenExclNull + 1 >= servlen) {
-            overflowed = true
-          }
-        }
-        if (overflowed) {
-          return -12
-        }
-        return 0
-      };
       var _glActiveTexture = x0 => GLctx.activeTexture(x0);
       var _glAttachShader = (program, shader) => {
         GLctx.attachShader(GL.programs[program], GL.shaders[shader])
@@ -6452,6 +5430,7 @@ var Godot = (() => {
         }
       };
       var _glGetUniformBlockIndex = (program, uniformBlockName) => GLctx.getUniformBlockIndex(GL.programs[program], UTF8ToString(uniformBlockName));
+      var jstoi_q = str => parseInt(str);
       var webglGetLeftBracePos = name => name.slice(-1) == "]" && name.lastIndexOf("[");
       var webglPrepareUniformLocationsBeforeFirstUse = program => {
         var uniformLocsById = program.uniformLocsById,
@@ -7251,25 +6230,34 @@ var Godot = (() => {
             this.id = params.id;
             this.streamObjectId = params.streamObjectId;
             this.offset = options.offset ?? 0;
+            this._playbackPosition = options.offset;
             this.startTime = options.startTime ?? 0;
             this.isPaused = false;
+            this.isStarted = false;
+            this.isCanceled = false;
             this.pauseTime = 0;
             this._playbackRate = 44100;
             this.loopMode = options.loopMode ?? this.getSample().loopMode ?? "disabled";
-            this._pitchScale = 1;
+            this._pitchScale = options.pitchScale ?? 1;
             this._sourceStartTime = 0;
             this._sampleNodeBuses = new Map;
             this._source = GodotAudio.ctx.createBufferSource();
             this._onended = null;
+            this._positionWorklet = null;
+            this._positionWorker = null;
             this.setPlaybackRate(options.playbackRate ?? 44100);
             this._source.buffer = this.getSample().getAudioBuffer();
             this._addEndedListener();
             const bus = GodotAudio.Bus.getBus(params.busIndex);
             const sampleNodeBus = this.getSampleNodeBus(bus);
-            sampleNodeBus.setVolume(options.volume)
+            sampleNodeBus.setVolume(options.volume);
+            this.connectPositionWorklet(options.start);
           }
           getPlaybackRate() {
             return this._playbackRate
+          }
+          getPlaybackPosition() {
+            return this._playbackPosition
           }
           setPlaybackRate(val) {
             this._playbackRate = val;
@@ -7289,8 +6277,12 @@ var Godot = (() => {
             return this._source
           }
           start() {
+            if (this.isStarted) {
+              return
+            }
             this._resetSourceStartTime();
-            this._source.start(this.startTime, this.offset)
+            this._source.start(this.startTime, this.offset);
+            this.isStarted = true
           }
           stop() {
             this.clear()
@@ -7325,13 +6317,62 @@ var Godot = (() => {
             }
             return this._sampleNodeBuses.get(bus)
           }
+          connectPositionWorklet(start) {
+            if (this.isCanceled) {
+              return
+            }
+            this._source.connect(this.getPositionWorklet());
+            if (start) {
+              this.start()
+            }
+          }
+          getPositionWorklet() {
+            if (this._positionWorklet != null) {
+              return this._positionWorklet
+            }
+            const scriptProcessorNode = GodotAudio.ctx.createScriptProcessor(2048, 2, 2);
+            scriptProcessorNode.onaudioprocess = (event) => {
+              console.log(event)
+              const input = event.inputBuffer;
+              if (input.numberOfChannels > 0) {
+                const inputChannelData = input.getChannelData(0);
+                positionWorker.postMessage({type: "process", input: inputChannelData, currentTime: GodotAudio.ctx.currentTime})
+              }
+            }
+            positionWorker.onMessage(event => {
+              if (event.data["type"] === "position") {
+                console.log(event.data.data)
+                this._playbackPosition = parseInt(event.data.data, 10) / this.getSample().sampleRate + this.offset;
+              }
+            })
+            this._positionWorklet = scriptProcessorNode;
+            this._positionWorker = positionWorker;
+            
+            return scriptProcessorNode
+            // if (this._positionWorklet != null) {
+            //   return this._positionWorklet
+            // }
+            // this._positionWorklet = new AudioWorkletNode(GodotAudio.ctx, "godot-position-reporting-processor");
+            // this._positionWorklet.port.onmessage = event => {
+            //   switch (event.data["type"]) {
+            //     case "position":
+            //       this._playbackPosition = parseInt(event.data.data, 10) / this.getSample().sampleRate + this.offset;
+            //       break;
+            //     default:
+            //   }
+            // };
+            // return this._positionWorklet
+          }
           clear() {
+            this.isCanceled = true;
             this.isPaused = false;
             this.pauseTime = 0;
             if (this._source != null) {
               this._source.removeEventListener("ended", this._onended);
               this._onended = null;
-              this._source.stop();
+              if (this.isStarted) {
+                this._source.stop()
+              }
               this._source.disconnect();
               this._source = null
             }
@@ -7339,6 +6380,13 @@ var Godot = (() => {
               sampleNodeBus.clear()
             }
             this._sampleNodeBuses.clear();
+            if (this._positionWorklet) {
+              this._positionWorker.terminate()
+              this._positionWorker.postMessage({
+                type: "ended"
+              });
+              this._positionWorklet = null
+            }
             GodotAudio.SampleNode.delete(this.id)
           }
           _resetSourceStartTime() {
@@ -7358,9 +6406,19 @@ var Godot = (() => {
             }
             this._addEndedListener();
             const pauseTime = this.isPaused ? this.pauseTime : 0;
-            this._source.start(this.startTime, this.offset + pauseTime)
+            if (this._positionWorklet != null) {
+              this._positionWorker.postMessage({
+                type: "clear"
+              });
+              this._source.connect(this._positionWorklet)
+            }
+            this._source.start(this.startTime, this.offset + pauseTime);
+            this.isStarted = true
           }
           _pause() {
+            if (!this.isStarted) {
+              return
+            }
             this.isPaused = true;
             this.pauseTime = (GodotAudio.ctx.currentTime - this._sourceStartTime) / this.getPlaybackRate();
             this._source.stop()
@@ -7437,7 +6495,10 @@ var Godot = (() => {
             return GodotAudio.buses[index]
           }
           static move(fromIndex, toIndex) {
-            const movedBus = GodotAudio.Bus.getBus(fromIndex);
+            const movedBus = GodotAudio.Bus.getBusOrNull(fromIndex);
+            if (movedBus == null) {
+              return
+            }
             const buses = GodotAudio.buses.filter((_, i) => i !== fromIndex);
             buses.splice(toIndex - 1, 0, movedBus);
             GodotAudio.buses = buses
@@ -7570,6 +6631,7 @@ var Godot = (() => {
         input: null,
         driver: null,
         interval: 0,
+        audioPositionWorkletPromise: null,
         linear_to_db: function (linear) {
           return Math.log(linear) * 8.685889638065037
         },
@@ -7685,12 +6747,11 @@ var Godot = (() => {
         },
         start_sample: function (playbackObjectId, streamObjectId, busIndex, startOptions) {
           GodotAudio.SampleNode.stopSampleNode(playbackObjectId);
-          const sampleNode = GodotAudio.SampleNode.create({
+          GodotAudio.SampleNode.create({
             busIndex,
             id: playbackObjectId,
             streamObjectId
-          }, startOptions);
-          sampleNode.start()
+          }, startOptions)
         },
         stop_sample: function (playbackObjectId) {
           GodotAudio.SampleNode.stopSampleNode(playbackObjectId)
@@ -7717,7 +6778,10 @@ var Godot = (() => {
           GodotAudio.Bus.setCount(count)
         },
         remove_sample_bus: function (index) {
-          const bus = GodotAudio.Bus.getBus(index);
+          const bus = GodotAudio.Bus.getBusOrNull(index);
+          if (bus == null) {
+            return
+          }
           bus.clear()
         },
         add_sample_bus: function (atPos) {
@@ -7727,29 +6791,54 @@ var Godot = (() => {
           GodotAudio.Bus.move(busIndex, toPos)
         },
         set_sample_bus_send: function (busIndex, sendIndex) {
-          const bus = GodotAudio.Bus.getBus(busIndex);
-          bus.setSend(GodotAudio.Bus.getBus(sendIndex))
+          const bus = GodotAudio.Bus.getBusOrNull(busIndex);
+          if (bus == null) {
+            return
+          }
+          let targetBus = GodotAudio.Bus.getBusOrNull(sendIndex);
+          if (targetBus == null) {
+            targetBus = GodotAudio.Bus.getBus(0)
+          }
+          bus.setSend(targetBus)
         },
         set_sample_bus_volume_db: function (busIndex, volumeDb) {
-          const bus = GodotAudio.Bus.getBus(busIndex);
+          const bus = GodotAudio.Bus.getBusOrNull(busIndex);
+          if (bus == null) {
+            return
+          }
           bus.setVolumeDb(volumeDb)
         },
         set_sample_bus_solo: function (busIndex, enable) {
-          const bus = GodotAudio.Bus.getBus(busIndex);
+          const bus = GodotAudio.Bus.getBusOrNull(busIndex);
+          if (bus == null) {
+            return
+          }
           bus.solo(enable)
         },
         set_sample_bus_mute: function (busIndex, enable) {
-          const bus = GodotAudio.Bus.getBus(busIndex);
+          const bus = GodotAudio.Bus.getBusOrNull(busIndex);
+          if (bus == null) {
+            return
+          }
           bus.mute(enable)
         }
       };
+
+      function _godot_audio_get_sample_playback_position(playbackObjectIdStrPtr) {
+        const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
+        const sampleNode = GodotAudio.SampleNode.getSampleNodeOrNull(playbackObjectId);
+        if (sampleNode == null) {
+          return 0
+        }
+        return sampleNode.getPlaybackPosition()
+      }
 
       function _godot_audio_has_script_processor() {
         return GodotAudio.ctx && GodotAudio.ctx.createScriptProcessor ? 1 : 0
       }
 
       function _godot_audio_has_worklet() {
-        return GodotAudio.ctx && GodotAudio.ctx.audioWorklet ? 1 : 0
+        return 0
       }
 
       function _godot_audio_init(p_mix_rate, p_latency, p_state_change, p_latency_update) {
@@ -7864,14 +6953,16 @@ var Godot = (() => {
         GodotAudio.sample_set_volumes_linear(playbackObjectId, Array.from(buses), volumes)
       }
 
-      function _godot_audio_sample_start(playbackObjectIdStrPtr, streamObjectIdStrPtr, busIndex, offset, volumePtr) {
+      function _godot_audio_sample_start(playbackObjectIdStrPtr, streamObjectIdStrPtr, busIndex, offset, pitchScale, volumePtr) {
         const playbackObjectId = GodotRuntime.parseString(playbackObjectIdStrPtr);
         const streamObjectId = GodotRuntime.parseString(streamObjectIdStrPtr);
         const volume = GodotRuntime.heapSub(HEAPF32, volumePtr, 8);
         const startOptions = {
           offset,
           volume,
-          playbackRate: 1
+          playbackRate: 1,
+          pitchScale,
+          start: true
         };
         GodotAudio.start_sample(playbackObjectId, streamObjectId, busIndex, startOptions)
       }
@@ -8657,7 +7748,6 @@ var Godot = (() => {
       }
 
       function _godot_js_display_window_title_set(p_data) {
-        // document.title = GodotRuntime.parseString(p_data)
       }
 
       function _godot_js_eval(p_js, p_use_global_ctx, p_union_ptr, p_byte_arr, p_byte_arr_write, p_callback) {
@@ -8801,6 +7891,12 @@ var Godot = (() => {
             }
             obj.reading = true;
             obj.reader.read().then(GodotFetch.onread.bind(null, id)).catch(GodotFetch.onerror.bind(null, id))
+          } else if (obj.reader == null && obj.response.body == null) {
+            obj.reading = true;
+            GodotFetch.onread(id, {
+              value: undefined,
+              done: true
+            })
           }
         }
       };
@@ -8893,7 +7989,7 @@ var Godot = (() => {
         if (!obj.response) {
           return 0
         }
-        if (obj.reader) {
+        if (obj.reader || obj.response.body == null && !obj.done) {
           return 1
         }
         if (obj.done) {
@@ -9161,36 +8257,50 @@ var Godot = (() => {
       var GodotIME = {
         ime: null,
         active: false,
+        focusTimerIntervalId: -1,
         getModifiers: function (evt) {
           return evt.shiftKey + 0 + (evt.altKey + 0 << 1) + (evt.ctrlKey + 0 << 2) + (evt.metaKey + 0 << 3)
         },
         ime_active: function (active) {
-          function focus_timer() {
-            GodotIME.active = true;
+          function clearFocusTimerInterval() {
+            clearInterval(GodotIME.focusTimerIntervalId);
+            GodotIME.focusTimerIntervalId = -1
+          }
+
+          function focusTimer() {
+            if (GodotIME.ime == null) {
+              clearFocusTimerInterval();
+              return
+            }
             GodotIME.ime.focus()
           }
-          if (GodotIME.ime) {
-            if (active) {
-              GodotIME.ime.style.display = "block";
-              setInterval(focus_timer, 100)
-            } else {
-              GodotIME.ime.style.display = "none";
-              GodotConfig.canvas.focus();
-              GodotIME.active = false
-            }
+          if (GodotIME.focusTimerIntervalId > -1) {
+            clearFocusTimerInterval()
+          }
+          if (GodotIME.ime == null) {
+            return
+          }
+          GodotIME.active = active;
+          if (active) {
+            GodotIME.ime.style.display = "block";
+            GodotIME.focusTimerIntervalId = setInterval(focusTimer, 100)
+          } else {
+            GodotIME.ime.style.display = "none";
+            GodotConfig.canvas.focus()
           }
         },
         ime_position: function (x, y) {
-          if (GodotIME.ime) {
-            const canvas = GodotConfig.canvas;
-            const rect = canvas.getBoundingClientRect();
-            const rw = canvas.width / rect.width;
-            const rh = canvas.height / rect.height;
-            const clx = x / rw + rect.x;
-            const cly = y / rh + rect.y;
-            GodotIME.ime.style.left = `${clx}px`;
-            GodotIME.ime.style.top = `${cly}px`
+          if (GodotIME.ime == null) {
+            return
           }
+          const canvas = GodotConfig.canvas;
+          const rect = canvas.getBoundingClientRect();
+          const rw = canvas.width / rect.width;
+          const rh = canvas.height / rect.height;
+          const clx = x / rw + rect.x;
+          const cly = y / rh + rect.y;
+          GodotIME.ime.style.left = `${clx}px`;
+          GodotIME.ime.style.top = `${cly}px`
         },
         init: function (ime_cb, key_cb, code, key) {
           function key_event_cb(pressed, evt) {
@@ -9202,20 +8312,28 @@ var Godot = (() => {
           }
 
           function ime_event_cb(event) {
-            if (GodotIME.ime) {
-              if (event.type === "compositionstart") {
+            if (GodotIME.ime == null) {
+              return
+            }
+            switch (event.type) {
+              case "compositionstart":
                 ime_cb(0, null);
-                GodotIME.ime.innerHTML = ""
-              } else if (event.type === "compositionupdate") {
+                GodotIME.ime.innerHTML = "";
+                break;
+              case "compositionupdate": {
                 const ptr = GodotRuntime.allocString(event.data);
                 ime_cb(1, ptr);
                 GodotRuntime.free(ptr)
-              } else if (event.type === "compositionend") {
-                const ptr = GodotRuntime.allocString(event.data);
-                ime_cb(2, ptr);
-                GodotRuntime.free(ptr);
-                GodotIME.ime.innerHTML = ""
               }
+              break;
+            case "compositionend": {
+              const ptr = GodotRuntime.allocString(event.data);
+              ime_cb(2, ptr);
+              GodotRuntime.free(ptr);
+              GodotIME.ime.innerHTML = ""
+            }
+            break;
+            default:
             }
           }
           const ime = document.createElement("div");
@@ -9246,10 +8364,15 @@ var Godot = (() => {
           GodotIME.ime = ime
         },
         clear: function () {
-          if (GodotIME.ime) {
-            GodotIME.ime.remove();
-            GodotIME.ime = null
+          if (GodotIME.ime == null) {
+            return
           }
+          if (GodotIME.focusTimerIntervalId > -1) {
+            clearInterval(GodotIME.focusTimerIntervalId);
+            GodotIME.focusTimerIntervalId = -1
+          }
+          GodotIME.ime.remove();
+          GodotIME.ime = null
         }
       };
       var GodotInput = {
@@ -9537,19 +8660,28 @@ var Godot = (() => {
 
       function _godot_js_pwa_cb(p_update_cb) {
         if ("serviceWorker" in navigator) {
-          const cb = GodotRuntime.get_func(p_update_cb);
-          navigator.serviceWorker.getRegistration().then(GodotPWA.updateState.bind(null, cb))
+          try {
+            const cb = GodotRuntime.get_func(p_update_cb);
+            navigator.serviceWorker.getRegistration().then(GodotPWA.updateState.bind(null, cb))
+          } catch (e) {
+            GodotRuntime.error("Failed to assign PWA callback", e)
+          }
         }
       }
 
       function _godot_js_pwa_update() {
         if ("serviceWorker" in navigator && GodotPWA.hasUpdate) {
-          navigator.serviceWorker.getRegistration().then(function (reg) {
-            if (!reg || !reg.waiting) {
-              return
-            }
-            reg.waiting.postMessage("update")
-          });
+          try {
+            navigator.serviceWorker.getRegistration().then(function (reg) {
+              if (!reg || !reg.waiting) {
+                return
+              }
+              reg.waiting.postMessage("update")
+            })
+          } catch (e) {
+            GodotRuntime.error(e);
+            return 1
+          }
           return 0
         }
         return 1
@@ -9642,6 +8774,54 @@ var Godot = (() => {
       function _godot_js_tts_stop() {
         window.speechSynthesis.cancel();
         window.speechSynthesis.resume()
+      }
+      var GodotWebMidi = {
+        abortControllers: [],
+        isListening: false
+      };
+
+      function _godot_js_webmidi_close_midi_inputs() {
+        for (const abortController of GodotWebMidi.abortControllers) {
+          abortController.abort()
+        }
+        GodotWebMidi.abortControllers = [];
+        GodotWebMidi.isListening = false
+      }
+
+      function _godot_js_webmidi_open_midi_inputs(pSetInputNamesCb, pOnMidiMessageCb, pDataBuffer, dataBufferLen) {
+        if (GodotWebMidi.is_listening) {
+          return 0
+        }
+        if (!navigator.requestMIDIAccess) {
+          return 2
+        }
+        const setInputNamesCb = GodotRuntime.get_func(pSetInputNamesCb);
+        const onMidiMessageCb = GodotRuntime.get_func(pOnMidiMessageCb);
+        GodotWebMidi.isListening = true;
+        navigator.requestMIDIAccess().then(midi => {
+          const inputs = [...midi.inputs.values()];
+          const inputNames = inputs.map(input => input.name);
+          const c_ptr = GodotRuntime.allocStringArray(inputNames);
+          setInputNamesCb(inputNames.length, c_ptr);
+          GodotRuntime.freeStringArray(c_ptr, inputNames.length);
+          inputs.forEach((input, i) => {
+            const abortController = new AbortController;
+            GodotWebMidi.abortControllers.push(abortController);
+            input.addEventListener("midimessage", event => {
+              const status = event.data[0];
+              const data = event.data.slice(1);
+              const size = data.length;
+              if (size > dataBufferLen) {
+                throw new Error(`data too big ${size} > ${dataBufferLen}`)
+              }
+              HEAPU8.set(data, pDataBuffer);
+              onMidiMessageCb(i, status, pDataBuffer, data.length)
+            }, {
+              signal: abortController.signal
+            })
+          })
+        });
+        return 0
       }
       var GodotWebSocket = {
         _onopen: function (p_id, callback, event) {
@@ -9873,6 +9053,9 @@ var Godot = (() => {
           const id = GodotJSWrapper.get_proxied(p_val);
           GodotRuntime.setHeapValue(p_exchange, id, "i64");
           return 24
+        },
+        isBuffer: function (obj) {
+          return obj instanceof ArrayBuffer || ArrayBuffer.isView(obj)
         }
       };
 
@@ -9989,6 +9172,11 @@ var Godot = (() => {
         }
       }
 
+      function _godot_js_wrapper_object_is_buffer(p_id) {
+        const obj = GodotJSWrapper.get_proxied_value(p_id);
+        return GodotJSWrapper.isBuffer(obj) ? 1 : 0
+      }
+
       function _godot_js_wrapper_object_set(p_id, p_name, p_type, p_exchange) {
         const obj = GodotJSWrapper.get_proxied_value(p_id);
         if (obj === undefined) {
@@ -10019,6 +9207,21 @@ var Godot = (() => {
           GodotRuntime.error(`Error setting variable ${key} on object`, obj);
           return -1
         }
+      }
+
+      function _godot_js_wrapper_object_transfer_buffer(p_id, p_byte_arr, p_byte_arr_write, p_callback) {
+        let obj = GodotJSWrapper.get_proxied_value(p_id);
+        if (!GodotJSWrapper.isBuffer(obj)) {
+          return
+        }
+        if (ArrayBuffer.isView(obj) && !(obj instanceof Uint8Array)) {
+          obj = new Uint8Array(obj.buffer)
+        } else if (obj instanceof ArrayBuffer) {
+          obj = new Uint8Array(obj)
+        }
+        const resizePackedByteArrayAndOpenWrite = GodotRuntime.get_func(p_callback);
+        const bytesPtr = resizePackedByteArrayAndOpenWrite(p_byte_arr, p_byte_arr_write, obj.length);
+        HEAPU8.set(obj, bytesPtr)
       }
 
       function _godot_js_wrapper_object_unref(p_id) {
@@ -10177,12 +9380,8 @@ var Godot = (() => {
       var wasmImports = {
         __assert_fail: ___assert_fail,
         __call_sighandler: ___call_sighandler,
-        __syscall__newselect: ___syscall__newselect,
-        __syscall_accept4: ___syscall_accept4,
-        __syscall_bind: ___syscall_bind,
         __syscall_chdir: ___syscall_chdir,
         __syscall_chmod: ___syscall_chmod,
-        __syscall_connect: ___syscall_connect,
         __syscall_faccessat: ___syscall_faccessat,
         __syscall_fchmod: ___syscall_fchmod,
         __syscall_fcntl64: ___syscall_fcntl64,
@@ -10190,22 +9389,15 @@ var Godot = (() => {
         __syscall_ftruncate64: ___syscall_ftruncate64,
         __syscall_getcwd: ___syscall_getcwd,
         __syscall_getdents64: ___syscall_getdents64,
-        __syscall_getsockname: ___syscall_getsockname,
-        __syscall_getsockopt: ___syscall_getsockopt,
         __syscall_ioctl: ___syscall_ioctl,
-        __syscall_listen: ___syscall_listen,
         __syscall_lstat64: ___syscall_lstat64,
         __syscall_mkdirat: ___syscall_mkdirat,
         __syscall_mknodat: ___syscall_mknodat,
         __syscall_newfstatat: ___syscall_newfstatat,
         __syscall_openat: ___syscall_openat,
-        __syscall_poll: ___syscall_poll,
         __syscall_readlinkat: ___syscall_readlinkat,
-        __syscall_recvfrom: ___syscall_recvfrom,
         __syscall_renameat: ___syscall_renameat,
         __syscall_rmdir: ___syscall_rmdir,
-        __syscall_sendto: ___syscall_sendto,
-        __syscall_socket: ___syscall_socket,
         __syscall_stat64: ___syscall_stat64,
         __syscall_statfs64: ___syscall_statfs64,
         __syscall_symlinkat: ___syscall_symlinkat,
@@ -10221,6 +9413,7 @@ var Godot = (() => {
         emscripten_date_now: _emscripten_date_now,
         emscripten_err: _emscripten_err,
         emscripten_force_exit: _emscripten_force_exit,
+        emscripten_get_heap_max: _emscripten_get_heap_max,
         emscripten_get_now: _emscripten_get_now,
         emscripten_resize_heap: _emscripten_resize_heap,
         emscripten_set_canvas_element_size: _emscripten_set_canvas_element_size,
@@ -10239,8 +9432,6 @@ var Godot = (() => {
         fd_read: _fd_read,
         fd_seek: _fd_seek,
         fd_write: _fd_write,
-        getaddrinfo: _getaddrinfo,
-        getnameinfo: _getnameinfo,
         glActiveTexture: _glActiveTexture,
         glAttachShader: _glAttachShader,
         glBeginTransformFeedback: _glBeginTransformFeedback,
@@ -10353,6 +9544,7 @@ var Godot = (() => {
         glVertexAttribIPointer: _glVertexAttribIPointer,
         glVertexAttribPointer: _glVertexAttribPointer,
         glViewport: _glViewport,
+        godot_audio_get_sample_playback_position: _godot_audio_get_sample_playback_position,
         godot_audio_has_script_processor: _godot_audio_has_script_processor,
         godot_audio_has_worklet: _godot_audio_has_worklet,
         godot_audio_init: _godot_audio_init,
@@ -10459,6 +9651,8 @@ var Godot = (() => {
         godot_js_tts_resume: _godot_js_tts_resume,
         godot_js_tts_speak: _godot_js_tts_speak,
         godot_js_tts_stop: _godot_js_tts_stop,
+        godot_js_webmidi_close_midi_inputs: _godot_js_webmidi_close_midi_inputs,
+        godot_js_webmidi_open_midi_inputs: _godot_js_webmidi_open_midi_inputs,
         godot_js_websocket_buffered_amount: _godot_js_websocket_buffered_amount,
         godot_js_websocket_close: _godot_js_websocket_close,
         godot_js_websocket_create: _godot_js_websocket_create,
@@ -10470,9 +9664,11 @@ var Godot = (() => {
         godot_js_wrapper_object_call: _godot_js_wrapper_object_call,
         godot_js_wrapper_object_get: _godot_js_wrapper_object_get,
         godot_js_wrapper_object_getvar: _godot_js_wrapper_object_getvar,
+        godot_js_wrapper_object_is_buffer: _godot_js_wrapper_object_is_buffer,
         godot_js_wrapper_object_set: _godot_js_wrapper_object_set,
         godot_js_wrapper_object_set_cb_ret: _godot_js_wrapper_object_set_cb_ret,
         godot_js_wrapper_object_setvar: _godot_js_wrapper_object_setvar,
+        godot_js_wrapper_object_transfer_buffer: _godot_js_wrapper_object_transfer_buffer,
         godot_js_wrapper_object_unref: _godot_js_wrapper_object_unref,
         godot_webgl2_glFramebufferTextureMultisampleMultiviewOVR: _godot_webgl2_glFramebufferTextureMultisampleMultiviewOVR,
         godot_webgl2_glFramebufferTextureMultiviewOVR: _godot_webgl2_glFramebufferTextureMultiviewOVR,
@@ -10486,9 +9682,6 @@ var Godot = (() => {
       var _main = Module["_main"] = createExportWrapper("__main_argc_argv", 2);
       var _malloc = createExportWrapper("malloc", 1);
       var _fflush = createExportWrapper("fflush", 1);
-      var _htonl = createExportWrapper("htonl", 1);
-      var _htons = createExportWrapper("htons", 1);
-      var _ntohs = createExportWrapper("ntohs", 1);
       var _strerror = createExportWrapper("strerror", 1);
       var ___funcs_on_exit = createExportWrapper("__funcs_on_exit", 0);
       var __emscripten_timeout = createExportWrapper("_emscripten_timeout", 2);
@@ -10501,9 +9694,9 @@ var Godot = (() => {
       var _emscripten_stack_get_current = () => (_emscripten_stack_get_current = wasmExports["emscripten_stack_get_current"])();
       Module["callMain"] = callMain;
       Module["cwrap"] = cwrap;
-      var missingLibrarySymbols = ["writeI53ToI64Clamped", "writeI53ToI64Signaling", "writeI53ToU64Clamped", "writeI53ToU64Signaling", "convertI32PairToI53", "convertI32PairToI53Checked", "convertU32PairToI53", "getTempRet0", "setTempRet0", "emscriptenLog", "readEmAsmArgs", "listenOnce", "autoResumeAudioContext", "getDynCaller", "dynCall", "setWasmTableEntry", "asmjsMangle", "HandleAllocator", "getNativeTypeSize", "STACK_SIZE", "STACK_ALIGN", "POINTER_SIZE", "ASSERTIONS", "uleb128Encode", "sigToWasmTypes", "generateFuncType", "convertJsFunctionToWasm", "getEmptyTableSlot", "updateTableMap", "getFunctionAddress", "addFunction", "removeFunction", "reallyNegative", "unSign", "strLen", "reSign", "formatString", "intArrayToString", "AsciiToString", "UTF16ToString", "stringToUTF16", "lengthBytesUTF16", "UTF32ToString", "stringToUTF32", "lengthBytesUTF32", "registerKeyEventCallback", "getBoundingClientRect", "fillMouseEventData", "registerMouseEventCallback", "registerWheelEventCallback", "registerUiEventCallback", "registerFocusEventCallback", "fillDeviceOrientationEventData", "registerDeviceOrientationEventCallback", "fillDeviceMotionEventData", "registerDeviceMotionEventCallback", "screenOrientation", "fillOrientationChangeEventData", "registerOrientationChangeEventCallback", "fillFullscreenChangeEventData", "registerFullscreenChangeEventCallback", "JSEvents_requestFullscreen", "JSEvents_resizeCanvasForFullscreen", "registerRestoreOldStyle", "hideEverythingExceptGivenElement", "restoreHiddenElements", "setLetterbox", "softFullscreenResizeWebGLRenderTarget", "doRequestFullscreen", "fillPointerlockChangeEventData", "registerPointerlockChangeEventCallback", "registerPointerlockErrorEventCallback", "requestPointerLock", "fillVisibilityChangeEventData", "registerVisibilityChangeEventCallback", "registerTouchEventCallback", "fillGamepadEventData", "registerGamepadEventCallback", "registerBeforeUnloadEventCallback", "fillBatteryEventData", "battery", "registerBatteryEventCallback", "setCanvasElementSize", "getCanvasElementSize", "jsStackTrace", "getCallstack", "convertPCtoSourceLocation", "checkWasiClock", "wasiRightsToMuslOFlags", "wasiOFlagsToMuslOFlags", "safeSetTimeout", "setImmediateWrapped", "safeRequestAnimationFrame", "clearImmediateWrapped", "polyfillSetImmediate", "registerPostMainLoop", "registerPreMainLoop", "getPromise", "makePromise", "idsToPromises", "makePromiseCallback", "Browser_asyncPrepareDataCounter", "arraySum", "addDays", "FS_unlink", "FS_mkdirTree", "_setNetworkCallback", "emscriptenWebGLGetUniform", "emscriptenWebGLGetVertexAttrib", "__glGetActiveAttribOrUniform", "writeGLArray", "registerWebGlEventCallback", "runAndAbortIfError", "emscriptenWebGLGetIndexed", "ALLOC_NORMAL", "ALLOC_STACK", "allocate", "writeStringToMemory", "writeAsciiToMemory", "setErrNo", "demangle", "stackTrace"];
+      var missingLibrarySymbols = ["writeI53ToI64Clamped", "writeI53ToI64Signaling", "writeI53ToU64Clamped", "writeI53ToU64Signaling", "convertI32PairToI53", "convertI32PairToI53Checked", "convertU32PairToI53", "getTempRet0", "setTempRet0", "inetPton4", "inetNtop4", "inetPton6", "inetNtop6", "readSockaddr", "writeSockaddr", "emscriptenLog", "readEmAsmArgs", "listenOnce", "autoResumeAudioContext", "getDynCaller", "dynCall", "setWasmTableEntry", "asmjsMangle", "HandleAllocator", "getNativeTypeSize", "STACK_SIZE", "STACK_ALIGN", "POINTER_SIZE", "ASSERTIONS", "uleb128Encode", "sigToWasmTypes", "generateFuncType", "convertJsFunctionToWasm", "getEmptyTableSlot", "updateTableMap", "getFunctionAddress", "addFunction", "removeFunction", "reallyNegative", "unSign", "strLen", "reSign", "formatString", "intArrayToString", "AsciiToString", "UTF16ToString", "stringToUTF16", "lengthBytesUTF16", "UTF32ToString", "stringToUTF32", "lengthBytesUTF32", "registerKeyEventCallback", "getBoundingClientRect", "fillMouseEventData", "registerMouseEventCallback", "registerWheelEventCallback", "registerUiEventCallback", "registerFocusEventCallback", "fillDeviceOrientationEventData", "registerDeviceOrientationEventCallback", "fillDeviceMotionEventData", "registerDeviceMotionEventCallback", "screenOrientation", "fillOrientationChangeEventData", "registerOrientationChangeEventCallback", "fillFullscreenChangeEventData", "registerFullscreenChangeEventCallback", "JSEvents_requestFullscreen", "JSEvents_resizeCanvasForFullscreen", "registerRestoreOldStyle", "hideEverythingExceptGivenElement", "restoreHiddenElements", "setLetterbox", "softFullscreenResizeWebGLRenderTarget", "doRequestFullscreen", "fillPointerlockChangeEventData", "registerPointerlockChangeEventCallback", "registerPointerlockErrorEventCallback", "requestPointerLock", "fillVisibilityChangeEventData", "registerVisibilityChangeEventCallback", "registerTouchEventCallback", "fillGamepadEventData", "registerGamepadEventCallback", "registerBeforeUnloadEventCallback", "fillBatteryEventData", "battery", "registerBatteryEventCallback", "setCanvasElementSize", "getCanvasElementSize", "jsStackTrace", "getCallstack", "convertPCtoSourceLocation", "checkWasiClock", "wasiRightsToMuslOFlags", "wasiOFlagsToMuslOFlags", "safeSetTimeout", "setImmediateWrapped", "safeRequestAnimationFrame", "clearImmediateWrapped", "polyfillSetImmediate", "registerPostMainLoop", "registerPreMainLoop", "getPromise", "makePromise", "idsToPromises", "makePromiseCallback", "Browser_asyncPrepareDataCounter", "arraySum", "addDays", "getSocketFromFD", "getSocketAddress", "FS_unlink", "FS_mkdirTree", "_setNetworkCallback", "emscriptenWebGLGetUniform", "emscriptenWebGLGetVertexAttrib", "__glGetActiveAttribOrUniform", "writeGLArray", "registerWebGlEventCallback", "runAndAbortIfError", "emscriptenWebGLGetIndexed", "ALLOC_NORMAL", "ALLOC_STACK", "allocate", "writeStringToMemory", "writeAsciiToMemory", "setErrNo", "demangle", "stackTrace"];
       missingLibrarySymbols.forEach(missingLibrarySymbol);
-      var unexportedSymbols = ["run", "addOnPreRun", "addOnInit", "addOnPreMain", "addOnExit", "addOnPostRun", "addRunDependency", "removeRunDependency", "out", "err", "abort", "wasmMemory", "wasmExports", "writeStackCookie", "checkStackCookie", "writeI53ToI64", "readI53FromI64", "readI53FromU64", "INT53_MAX", "INT53_MIN", "bigintToI53Checked", "stackSave", "stackRestore", "stackAlloc", "ptrToString", "zeroMemory", "exitJS", "getHeapMax", "growMemory", "ENV", "ERRNO_CODES", "strError", "inetPton4", "inetNtop4", "inetPton6", "inetNtop6", "readSockaddr", "writeSockaddr", "DNS", "Protocols", "Sockets", "timers", "warnOnce", "readEmAsmArgsArray", "jstoi_q", "jstoi_s", "getExecutableName", "getWasmTableEntry", "handleException", "keepRuntimeAlive", "runtimeKeepalivePush", "runtimeKeepalivePop", "callUserCallback", "maybeExit", "asyncLoad", "alignMemory", "mmapAlloc", "wasmTable", "noExitRuntime", "getCFunc", "ccall", "freeTableIndexes", "functionsInTableMap", "setValue", "getValue", "PATH", "PATH_FS", "UTF8Decoder", "UTF8ArrayToString", "UTF8ToString", "stringToUTF8Array", "stringToUTF8", "lengthBytesUTF8", "intArrayFromString", "stringToAscii", "UTF16Decoder", "stringToNewUTF8", "stringToUTF8OnStack", "writeArrayToMemory", "JSEvents", "specialHTMLTargets", "maybeCStringToJsString", "findEventTarget", "findCanvasEventTarget", "currentFullscreenStrategy", "restoreOldWindowedStyle", "UNWIND_CACHE", "ExitStatus", "getEnvStrings", "doReadv", "doWritev", "initRandomFill", "randomFill", "promiseMap", "Browser", "getPreloadedImageData__data", "wget", "MONTH_DAYS_REGULAR", "MONTH_DAYS_LEAP", "MONTH_DAYS_REGULAR_CUMULATIVE", "MONTH_DAYS_LEAP_CUMULATIVE", "isLeapYear", "ydayFromDate", "SYSCALLS", "getSocketFromFD", "getSocketAddress", "preloadPlugins", "FS_createPreloadedFile", "FS_modeStringToFlags", "FS_getMode", "FS_stdin_getChar_buffer", "FS_stdin_getChar", "FS_createPath", "FS_createDevice", "FS_readFile", "FS", "FS_createDataFile", "FS_createLazyFile", "MEMFS", "TTY", "PIPEFS", "SOCKFS", "tempFixedLengthArray", "miniTempWebGLFloatBuffers", "miniTempWebGLIntBuffers", "heapObjectForWebGLType", "toTypedArrayIndex", "webgl_enable_ANGLE_instanced_arrays", "webgl_enable_OES_vertex_array_object", "webgl_enable_WEBGL_draw_buffers", "webgl_enable_WEBGL_multi_draw", "webgl_enable_EXT_polygon_offset_clamp", "webgl_enable_EXT_clip_control", "webgl_enable_WEBGL_polygon_mode", "GL", "emscriptenWebGLGet", "computeUnpackAlignedImageSize", "colorChannelsInGlTextureFormat", "emscriptenWebGLGetTexPixelData", "webglGetUniformLocation", "webglPrepareUniformLocationsBeforeFirstUse", "webglGetLeftBracePos", "AL", "GLUT", "EGL", "GLEW", "IDBStore", "SDL", "SDL_gfx", "webgl_enable_WEBGL_draw_instanced_base_vertex_base_instance", "webgl_enable_WEBGL_multi_draw_instanced_base_vertex_base_instance", "allocateUTF8", "allocateUTF8OnStack", "print", "printErr", "GodotWebSocket", "GodotAudio", "GodotAudioWorklet", "GodotAudioScript", "GodotDisplayVK", "GodotDisplayCursor", "GodotDisplayScreen", "GodotDisplay", "GodotFetch", "IDHandler", "GodotConfig", "GodotFS", "GodotOS", "GodotEventListeners", "GodotPWA", "GodotRuntime", "GodotIME", "GodotInputGamepads", "GodotInputDragDrop", "GodotInput", "GodotWebGL2", "GodotJSWrapper", "IDBFS"];
+      var unexportedSymbols = ["run", "addOnPreRun", "addOnInit", "addOnPreMain", "addOnExit", "addOnPostRun", "addRunDependency", "removeRunDependency", "out", "err", "abort", "wasmMemory", "wasmExports", "writeStackCookie", "checkStackCookie", "writeI53ToI64", "readI53FromI64", "readI53FromU64", "INT53_MAX", "INT53_MIN", "bigintToI53Checked", "stackSave", "stackRestore", "stackAlloc", "ptrToString", "zeroMemory", "exitJS", "getHeapMax", "growMemory", "ENV", "ERRNO_CODES", "strError", "DNS", "Protocols", "Sockets", "timers", "warnOnce", "readEmAsmArgsArray", "jstoi_q", "jstoi_s", "getExecutableName", "getWasmTableEntry", "handleException", "keepRuntimeAlive", "runtimeKeepalivePush", "runtimeKeepalivePop", "callUserCallback", "maybeExit", "asyncLoad", "alignMemory", "mmapAlloc", "wasmTable", "noExitRuntime", "getCFunc", "ccall", "freeTableIndexes", "functionsInTableMap", "setValue", "getValue", "PATH", "PATH_FS", "UTF8Decoder", "UTF8ArrayToString", "UTF8ToString", "stringToUTF8Array", "stringToUTF8", "lengthBytesUTF8", "intArrayFromString", "stringToAscii", "UTF16Decoder", "stringToNewUTF8", "stringToUTF8OnStack", "writeArrayToMemory", "JSEvents", "specialHTMLTargets", "maybeCStringToJsString", "findEventTarget", "findCanvasEventTarget", "currentFullscreenStrategy", "restoreOldWindowedStyle", "UNWIND_CACHE", "ExitStatus", "getEnvStrings", "doReadv", "doWritev", "initRandomFill", "randomFill", "promiseMap", "Browser", "getPreloadedImageData__data", "wget", "MONTH_DAYS_REGULAR", "MONTH_DAYS_LEAP", "MONTH_DAYS_REGULAR_CUMULATIVE", "MONTH_DAYS_LEAP_CUMULATIVE", "isLeapYear", "ydayFromDate", "SYSCALLS", "preloadPlugins", "FS_createPreloadedFile", "FS_modeStringToFlags", "FS_getMode", "FS_stdin_getChar_buffer", "FS_stdin_getChar", "FS_createPath", "FS_createDevice", "FS_readFile", "FS", "FS_createDataFile", "FS_createLazyFile", "MEMFS", "TTY", "PIPEFS", "SOCKFS", "tempFixedLengthArray", "miniTempWebGLFloatBuffers", "miniTempWebGLIntBuffers", "heapObjectForWebGLType", "toTypedArrayIndex", "webgl_enable_ANGLE_instanced_arrays", "webgl_enable_OES_vertex_array_object", "webgl_enable_WEBGL_draw_buffers", "webgl_enable_WEBGL_multi_draw", "webgl_enable_EXT_polygon_offset_clamp", "webgl_enable_EXT_clip_control", "webgl_enable_WEBGL_polygon_mode", "GL", "emscriptenWebGLGet", "computeUnpackAlignedImageSize", "colorChannelsInGlTextureFormat", "emscriptenWebGLGetTexPixelData", "webglGetUniformLocation", "webglPrepareUniformLocationsBeforeFirstUse", "webglGetLeftBracePos", "AL", "GLUT", "EGL", "GLEW", "IDBStore", "SDL", "SDL_gfx", "webgl_enable_WEBGL_draw_instanced_base_vertex_base_instance", "webgl_enable_WEBGL_multi_draw_instanced_base_vertex_base_instance", "allocateUTF8", "allocateUTF8OnStack", "print", "printErr", "GodotWebSocket", "GodotAudio", "GodotAudioWorklet", "GodotAudioScript", "GodotDisplayVK", "GodotDisplayCursor", "GodotDisplayScreen", "GodotDisplay", "GodotFetch", "GodotWebMidi", "IDHandler", "GodotConfig", "GodotFS", "GodotOS", "GodotEventListeners", "GodotPWA", "GodotRuntime", "GodotIME", "GodotInputGamepads", "GodotInputDragDrop", "GodotInput", "GodotWebGL2", "GodotJSWrapper", "IDBFS"];
       unexportedSymbols.forEach(unexportedRuntimeSymbol);
       var calledRun;
       dependenciesFulfilled = function runCaller() {
@@ -11144,10 +10337,10 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
       'locateFile': function (path) {
         if (!path.startsWith('godot.')) {
           return path;
-        } else if (path.endsWith('.worker.js')) {
-          return `${loadPath}.worker.js`;
         } else if (path.endsWith('.audio.worklet.js')) {
           return `${loadPath}.audio.worklet.js`;
+        } else if (path.endsWith('.audio.position.worklet.js')) {
+          return `${loadPath}.audio.position.worklet.js`;
         } else if (path.endsWith('.js')) {
           return `${loadPath}.js`;
         } else if (path in gdext) {
@@ -11167,6 +10360,17 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
    * @param {function()} cleanup
    */
   Config.prototype.getGodotConfig = function (cleanup) {
+    // Try to find a canvas
+    if (!(this.canvas instanceof HTMLCanvasElement)) {
+      const nodes = document.getElementsByTagName('canvas');
+      if (nodes.length && nodes[0] instanceof HTMLCanvasElement) {
+        const first = nodes[0];
+        this.canvas = /** @type {!HTMLCanvasElement} */ (first);
+      }
+      if (!this.canvas) {
+        throw new Error('No canvas found in page');
+      }
+    }
     // Canvas can grab focus on click, or key events won't work.
     if (this.canvas.tabIndex < 0) {
       this.canvas.tabIndex = 0;
@@ -11298,11 +10502,11 @@ const Engine = (function () {
             promise.then(function (response) {
               const cloned = response;
               Godot(me.config.getModuleConfig(loadPath, cloned)).then(function (module) {
-                me.rtenv = module;
-                resolve();
+                  me.rtenv = module;
+                  resolve();
+                });
               });
             });
-          });
         }
         preloader.setProgressFunc(this.config.onProgress);
         initPromise = doInit(loadPromise);
@@ -11419,7 +10623,6 @@ const Engine = (function () {
         }
         this.rtenv['copyToFS'](path, buffer);
       },
-
       copyFSToAdapter: function(adapter) {
         if (this.rtenv == null) {
           throw new Error("Engine must be inited before copying files");
@@ -11431,7 +10634,6 @@ const Engine = (function () {
         });
         return Promise.all(promises)
       },
-
       /**
        * Request that the current instance quit.
        *
@@ -11451,7 +10653,7 @@ const Engine = (function () {
        */
       installServiceWorker: function () {
         if (this.config.serviceWorker && 'serviceWorker' in navigator) {
-          return navigator.serviceWorker.register(this.config.serviceWorker);
+            return navigator.serviceWorker.register(this.config.serviceWorker);
         }
         return Promise.resolve();
       },

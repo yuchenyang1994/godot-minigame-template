@@ -195,7 +195,7 @@ function Fetch(url, options = {}) {
           data: options.body || {},
           header: headers,
           dataType: dataType,
-          responseType: responseType,
+          responseType: "arraybuffer",
           success(res) {
               const response = new Response(res.data, {
                 status: res.statusCode,
