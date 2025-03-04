@@ -6360,7 +6360,7 @@ var Godot = (() => {
             this.isPaused = false;
             this.pauseTime = 0;
             if (this._source != null) {
-              this._source.removeEventListener("ended", this._onended);
+              // this._source.removeEventListener("ended", this._onended);
               this._onended = null;
               if (this.isStarted) {
                 this._source.stop()
@@ -6423,7 +6423,7 @@ var Godot = (() => {
           }
           _addEndedListener() {
             if (this._onended != null) {
-              this._source.removeEventListener("ended", this._onended)
+              // this._source.removeEventListener("ended", this._onended)
             }
             const self = this;
             this._onended = _ => {
@@ -6448,7 +6448,7 @@ var Godot = (() => {
               default:
               }
             };
-            this._source.addEventListener("ended", this._onended)
+            this._source.onended = this._onended
           }
         },
         buses: null,

@@ -1,31 +1,23 @@
-self.position = {
-  position: 0,
-  ended: false,
-  lastPostTime: 0,
-  currentTime: 0
-}
+let position = 0
+let ended = false
+let lastPostTime = 0
+let currentTime = 0
 
-self.onmessage = event => {
+worker.onMessage(event => {
 
-  if (self.position.ended) {
+  if (ended) {
     return;
   }
-  if (event.data.msg.data.type === 'init') {
-    self.position.currentTime = event.data.msg.data.currentTime;
+  if (event.type === 'init') {
+    currentTime = event.currentTime;
   }
 
-  if (event.data.msg.data.type === "process") {
-    if (self.position.ended) {
-      return;
-    }
-    if (event.data.msg.data.currentTime > 0) {
-      self.position.currentTime = event.data.msg.data.currentTime;
-    }
+  if (event.type === "process") {
 
-    self.position.position += event.data.msg.data.inputLength
-    if (event.data.msg.data.currentTime - self.position.lastPostTime > 0.1) {
-      self.position.lastPostTime = event.data.msg.data.currentTime;
-      worker.postMessage({type: 'position', data: self.position.position})
+    position += event.inputLength
+    if (event.currentTime - lastPostTime > 0.1) {
+      lastPostTime = event.currentTime;
+      worker.postMessage({type: 'position', data: position})
     }
   }
-}
+})
