@@ -1,5 +1,8 @@
 const createAudioContext = wx.createWebAudioContext;
-const positionWorker = wx.createWorker('js/worker/position_reporting.js')
+const createPositionWorker = () => {
+  return wx.createWorker('js/worker/position_reporting.js');
+} 
+
 
 var Godot = (() => {
   var _scriptName = typeof document != 'undefined' ? document.currentScript?.src : undefined;
@@ -6330,38 +6333,27 @@ var Godot = (() => {
             if (this._positionWorklet != null) {
               return this._positionWorklet
             }
-            const scriptProcessorNode = GodotAudio.ctx.createScriptProcessor(2048, 2, 2);
-            scriptProcessorNode.onaudioprocess = (event) => {
-              console.log(event)
-              const input = event.inputBuffer;
-              if (input.numberOfChannels > 0) {
-                const inputChannelData = input.getChannelData(0);
-                positionWorker.postMessage({type: "process", input: inputChannelData, currentTime: GodotAudio.ctx.currentTime})
+            const positionWorker = createPositionWorker();
+            let scriptProcessorNode = GodotAudio.ctx.createScriptProcessor(256, 2, 2);
+            positionWorker.postMessage({type: "init", currentTime: GodotAudio.ctx.currentTime});
+            scriptProcessorNode.onaudioprocess = function (event) {
+              const audiobuffer = event.inputBuffer;
+              if (audiobuffer.numberOfChannels > 0) {
+                const input = audiobuffer.getChannelData(0);
+                if (input.length > 0) {
+                  positionWorker.postMessage({type: "process", inputLength: input.length, currentTime: GodotAudio.ctx.currentTime})
+                }
               }
             }
             positionWorker.onMessage(event => {
-              if (event.data["type"] === "position") {
-                console.log(event.data.data)
-                this._playbackPosition = parseInt(event.data.data, 10) / this.getSample().sampleRate + this.offset;
+              if (event.type === "position") {
+                this._playbackPosition = parseInt(event.data, 10) / this.getSample().sampleRate + this.offset;
               }
             })
             this._positionWorklet = scriptProcessorNode;
             this._positionWorker = positionWorker;
-            
-            return scriptProcessorNode
-            // if (this._positionWorklet != null) {
-            //   return this._positionWorklet
-            // }
-            // this._positionWorklet = new AudioWorkletNode(GodotAudio.ctx, "godot-position-reporting-processor");
-            // this._positionWorklet.port.onmessage = event => {
-            //   switch (event.data["type"]) {
-            //     case "position":
-            //       this._playbackPosition = parseInt(event.data.data, 10) / this.getSample().sampleRate + this.offset;
-            //       break;
-            //     default:
-            //   }
-            // };
-            // return this._positionWorklet
+            this._positionWorklet.connect(GodotAudio.ctx.destination)
+            return this._positionWorklet;
           }
           clear() {
             this.isCanceled = true;
@@ -6381,10 +6373,11 @@ var Godot = (() => {
             }
             this._sampleNodeBuses.clear();
             if (this._positionWorklet) {
-              this._positionWorker.terminate()
+              this._positionWorklet.disconnect();
               this._positionWorker.postMessage({
                 type: "ended"
               });
+              this._positionWorker.terminate();
               this._positionWorklet = null
             }
             GodotAudio.SampleNode.delete(this.id)
