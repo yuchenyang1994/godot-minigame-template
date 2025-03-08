@@ -2,7 +2,6 @@ class GodotSDK {
   set_engine(engine) {
     this.engine = engine;
   }
-
   writeFile(path, array) {
     const fs = wx.getFileSystemManager();
     const idx = path.lastIndexOf("/");
@@ -73,7 +72,6 @@ class GodotSDK {
       }
     });
   }
-
   copyLocalToFS(path) {
     const fs = wx.getFileSystemManager();
 
@@ -128,13 +126,82 @@ class GodotSDK {
       }, Promise.resolve());
     });
   }
-
+  
   syncfs(onSuccess, onError) {
     this.engine.copyFSToAdapter(this).then(() => {
-      onSuccess()
+      if (onSuccess) {
+        onSuccess()
+      }
     }).catch((error) => {
-      onError(error)
+      if (onError) {
+        onError(error)
+      }
     });
+  }
+
+  downloadSubpcks(onSuccess, onError) {
+    return new Promise((resolve, reject) => {
+      wx.loadSubpackage({
+        fail: reject,
+        name: 'subpacks',
+        success: () => resolve(),
+      })
+    }).then(() => {
+      const fs = wx.getFileSystemManager();
+      return new Promise((resolve, reject) => {
+        fs.readdir({
+          dirPath: "subpacks",
+          success: res => {
+            resolve(res.files);
+          },
+          fail: reject
+        })
+      })
+    }).then(files => {
+      const promises = files.filter(file => !file.endsWith(".js")).map(file => {
+        return new Promise((resolve, reject) => {
+          const fs = wx.getFileSystemManager()
+          fs.readFile({
+            filePath: `subpacks/${file}`,
+            success: (res) => resolve({name: file, data: res.data}),
+            fail: reject
+          })
+        })
+      })
+      return Promise.all(promises)
+    }).then(values => {
+      values.map(value => {
+        const path = `subpacks/${value.name}`;
+        this.engine.copyToFS(path, value.data);
+      })
+      onSuccess()
+    }).catch(reason => {
+      if (onError) {
+        onError(reason.errMsg);
+      }
+    })
+  }
+
+  downloadCDNSubpcks(url, onSucess, onError) {
+    return new Promise((resolve, reject) => {
+      wx.request({
+        url: url,
+        responseType: "arraybuffer",
+        method: "GET",
+        success: res => resolve(res.data),
+        fail: reject
+      })
+    }).then(data => {
+      const filename = url.split('/').pop();
+      this.engine.copyToFS(`subpacks/${filename}`, data)
+      if (onSucess) {
+        onSucess();
+      }
+    }).then(reason => {
+      if (onError) {
+        onError(reason);
+      }
+    })
   }
 }
 
