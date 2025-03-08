@@ -197,7 +197,7 @@ class GodotSDK {
       if (onSucess) {
         onSucess();
       }
-    }).then(reason => {
+    }).catch(reason => {
       if (onError) {
         onError(reason);
       }
