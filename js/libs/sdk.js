@@ -72,7 +72,7 @@ class GodotSDK {
       }
     });
   }
-  copyLocalToFS(path) {
+   copyLocalToFS(path) {
     const fs = wx.getFileSystemManager();
 
     // 检查路径是否存在
@@ -84,7 +84,16 @@ class GodotSDK {
       });
     }).catch(() => {
       console.warn(`Path does not exist: ${path}`);
-      return Promise.resolve();
+      return new Promise((reslove, reject) => {
+        fs.mkdir({
+          dirPath: `${wx.env.USER_DATA_PATH}${path}`,
+          recursive: true,
+          success: () => {
+            reslove()
+          },
+          fail: reject
+        })
+      })
     }).then(() => {
       // 读取目录内容
       return new Promise((resolve, reject) => {
