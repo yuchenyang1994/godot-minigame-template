@@ -5,9 +5,14 @@ let currentTime = 0
 
 worker.onMessage(event => {
 
-  if (ended) {
-    return;
+  if (event.type === "ended") {
+    position = 0;
+    ended = false;
+    lastPostTime = 0;
+    currentTime = 0;
+    return
   }
+
   if (event.type === 'init') {
     currentTime = event.currentTime;
   }

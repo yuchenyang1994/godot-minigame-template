@@ -1,8 +1,5 @@
 const createAudioContext = wx.createWebAudioContext;
-const createPositionWorker = () => {
-  return wx.createWorker('js/worker/position_reporting.js');
-} 
-
+const positionWorker  = wx.createWorker('js/worker/position_reporting.js');
 
 var Godot = (() => {
   var _scriptName = typeof document != 'undefined' ? document.currentScript?.src : undefined;
@@ -6333,8 +6330,7 @@ var Godot = (() => {
             if (this._positionWorklet != null) {
               return this._positionWorklet
             }
-            const positionWorker = createPositionWorker();
-            let scriptProcessorNode = GodotAudio.ctx.createScriptProcessor(256, 2, 2);
+            let scriptProcessorNode = GodotAudio.ctx.createScriptProcessor(2048, 2, 2);
             positionWorker.postMessage({type: "init", currentTime: GodotAudio.ctx.currentTime});
             scriptProcessorNode.onaudioprocess = function (event) {
               const audiobuffer = event.inputBuffer;
@@ -6377,7 +6373,6 @@ var Godot = (() => {
               this._positionWorker.postMessage({
                 type: "ended"
               });
-              this._positionWorker.terminate();
               this._positionWorklet = null
             }
             GodotAudio.SampleNode.delete(this.id)

@@ -6,6 +6,10 @@
     {
       "root": "engine/",
       "name": "engine"
+    },
+    {
+      "root": "subpacks/",
+      "name": "subpacks"
     }
   ],
   "plugins": {},
